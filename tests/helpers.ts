@@ -2,6 +2,7 @@ import { Clock } from '../src/application/clock.js';
 import { CodeGenerator } from '../src/application/code-generator.js';
 import { PickupCode } from '../src/domain/pickup-code.js';
 import { SmallestFitStrategy } from '../src/application/allocation-strategy.js';
+import { TieredPricingPolicy } from '../src/application/pricing-policy.js';
 import { InMemoryLockerRepository } from '../src/infrastructure/in-memory-locker-repository.js';
 import { LockerStation } from '../src/application/locker-station.js';
 
@@ -40,6 +41,7 @@ export function makeStation(overrides: Partial<StationDeps> = {}) {
     strategy: new SmallestFitStrategy(),
     clock,
     codeGenerator: new SequenceCodeGenerator(['111111', '222222', '333333', '444444']),
+    pricing: new TieredPricingPolicy(),
     ...overrides,
   });
   return { station, repository, clock };

@@ -57,3 +57,14 @@ describe('LockerStation — level 2', () => {
     );
   });
 });
+
+describe('LockerStation — level 3 charges', () => {
+  it('returns the storage charge with the pickup confirmation', async () => {
+    const { station, clock } = makeStation();
+    await station.createLocker(LockerSize.SMALL);
+    const receipt = await station.storePackage(new Package(LockerSize.SMALL));
+    clock.advanceHours(6 * 24); // 6 days -> 5×1 + 1×2 = 7
+    const result = await station.retrievePackage(receipt.lockerId, receipt.pickupCode);
+    expect(result.charge).toBe(7);
+  });
+});

@@ -11,6 +11,7 @@ import { AllocationStrategy } from './allocation-strategy.js';
 import { Clock } from './clock.js';
 import { CodeGenerator } from './code-generator.js';
 import { LockerRepository } from './locker-repository.js';
+import { PricingPolicy } from './pricing-policy.js';
 
 export interface StoreReceipt {
   lockerId: string;
@@ -19,6 +20,7 @@ export interface StoreReceipt {
 
 export interface RetrievalReceipt {
   package: Package;
+  charge: number;
 }
 
 export interface LockerStatus {
@@ -32,6 +34,7 @@ interface Dependencies {
   strategy: AllocationStrategy;
   clock: Clock;
   codeGenerator: CodeGenerator;
+  pricing: PricingPolicy;
 }
 
 const MAX_CODE_ATTEMPTS = 100;
@@ -72,9 +75,9 @@ export class LockerStation {
     } catch {
       throw new InvalidPickupCodeError(lockerId);
     }
-    const { package: pkg } = locker.retrieve(pickupCode);
+    const { package: pkg, storedAt } = locker.retrieve(pickupCode);
     await this.deps.repository.save(locker);
-    return { package: pkg };
+    return { package: pkg, charge: this.deps.pricing.charge(storedAt, this.deps.clock.now()) };
   }
 
   private uniquePickupCode(lockers: Locker[]): PickupCode {
