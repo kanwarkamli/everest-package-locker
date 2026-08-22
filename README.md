@@ -18,7 +18,7 @@ them with a locker ID and a pickup code. All four challenge levels are implement
 ```bash
 npm install
 npm start        # interactive CLI
-npm test         # test suite (Vitest, 64 tests)
+npm test         # test suite (Vitest, 71 tests)
 npm run typecheck
 npm run lint
 ```
@@ -64,10 +64,10 @@ src/
     pricing-policy.ts       Strategy port + TieredPricingPolicy
     clock.ts                Clock port + SystemClock
     code-generator.ts       CodeGenerator port + CryptoCodeGenerator
-    locker-repository.ts    async repository port
+    locker-repository.ts    async repository port (identity-map contract)
+    mutex.ts                async mutex used by the station
   infrastructure/
     in-memory-locker-repository.ts
-    mutex.ts                async mutex used by the station
   cli/
     presenter.ts      domain results/errors -> user-facing text
     repl.ts           command parsing + readline loop
@@ -85,15 +85,20 @@ Key decisions:
   calculation deterministic under test (`FixedClock` advances by hours in tests).
 - **Async repository on purpose.** The store is in-memory, but the port is async and the
   in-memory implementation yields to the event loop on every call, so the application
-  layer experiences realistic interleaving. This keeps the Level 4 guarantee honest and
-  means a real database adapter can replace the in-memory one without touching
-  domain/application code.
+  layer experiences realistic interleaving. This keeps the Level 4 guarantee honest. The
+  port's contract is an identity map (lookups return live entities, duplicate ids are
+  rejected); an adapter backed by an external store would extend it with write-back,
+  rehydration and an atomic reserve — a deliberate, documented seam rather than a free
+  swap.
 - **Level 4 correctness.** `storePackage` runs find-and-reserve as one critical section
   behind an async `Mutex`; two simultaneous requests can never be handed the same locker,
   and losers get the standard "no suitable locker" error. The concurrency tests fail if
-  the mutex is removed. With a real database this guarantee would move to an atomic
-  conditional update (e.g. `UPDATE ... WHERE status = 'AVAILABLE'`), which the port shape
-  already permits.
+  the mutex is removed. The guarantee is scoped to a single `LockerStation` instance
+  owning its repository; multiple stations over one shared store would need the reserve
+  step moved behind the repository port as an atomic operation.
+- **Failure-safe retrieval.** The storage charge is computed *before* the locker is
+  mutated, so a pricing failure (e.g. the system clock stepping backwards) can never lose
+  a stored package — there is a regression test for exactly this.
 - **Defence in depth.** `Locker` enforces its own invariants (occupied lockers reject
   stores, wrong codes reject retrieval) independent of what the service layer does.
 - **Errors are types, messages live at the edge.** The domain throws typed errors; only
@@ -113,12 +118,15 @@ Key decisions:
 4. **No customer/agent identity:** the challenge flows only require the locker ID +
    pickup code pair, so people are not modelled (YAGNI).
 5. **Persistence:** in-memory for the challenge; the async repository port is the
-   substitution point for a real store.
+   substitution point for a real store (which would extend the port — see Design).
+6. **Single station:** one `LockerStation` instance exclusively owns its repository;
+   the concurrency guarantee is scoped accordingly.
 
 ## Trade-offs & with more time
 
-- **Persistence adapter** (SQLite/Postgres) demonstrating the repository swap, with the
-  reserve step done as an atomic conditional update.
+- **Persistence adapter** (SQLite/Postgres): extend the repository port with write-back,
+  rehydration and an atomic reserve (`UPDATE ... WHERE status = 'AVAILABLE'`), moving the
+  concurrency guarantee from the in-process mutex to the store.
 - **REST facade** beside the CLI to show the core is interface-agnostic.
 - **Multiple stations / multi-tenancy** — `LockerStation` is already an aggregate-shaped
   seam for this.
@@ -127,18 +135,36 @@ Key decisions:
 
 ## AI Usage Disclosure
 
-- **Tool used:** Claude Code (Anthropic), model Claude Fable 5.
-- **How it was used:** a structured workflow — collaborative brainstorming of scope and
-  approach → written design spec → detailed implementation plan → strict TDD execution
-  (every unit: failing test first, then implementation, then verification), with human
-  review and approval at each stage. The intermediate artifacts are committed in
-  `docs/superpowers/specs/` (design spec) and `docs/superpowers/plans/` (task-by-task
-  implementation plan), and the git history reflects the actual sequence of work.
-- **AI-assisted portions:** all production and test code was AI-drafted under the plan
-  above, then human-reviewed. Design decisions (stack, interface choice, scope,
-  architecture, assumptions such as the charging-day rule) were made collaboratively and
-  approved by me before implementation.
-- **Workflow notes:** the commit history is genuine TDD history — each feature commit
-  contains the test and the code that makes it pass; two mid-course corrections found by
-  the tests themselves (a lint rule and a test-fixture gap in the concurrency test) are
-  visible in the history.
+You asked for transparency about AI usage, so here is exactly how this was built.
+
+**Which AI tool(s) did I use?** Claude Code (Anthropic's coding agent, model Claude
+Fable 5), run from the terminal against this repository.
+
+**How did I use it?** As a pair programmer driven through explicit checkpoints, not as a
+one-shot code generator:
+
+1. I gave it both challenge PDFs and had it compare them; after discussing the trade-offs
+   I picked this challenge.
+2. It proposed three architectures with trade-offs; I made the calls on stack
+   (TypeScript), interface (an interactive CLI, since state is in-memory), scope (all
+   four levels, including the optional concurrency level), and approved the layered-OOP
+   approach with the two Strategy seams.
+3. It wrote a design spec (`docs/superpowers/specs/`), which I reviewed and approved —
+   including the documented assumptions, like the "started day" charging rule.
+4. It wrote a task-by-task implementation plan (`docs/superpowers/plans/`), then executed
+   it in strict TDD: every unit started from a failing test that was run and seen to fail
+   before the implementation was written.
+5. After completion, I had it run an adversarial review pass over the whole codebase and
+   applied the findings that survived verification.
+
+**What portions were AI-assisted?** All production and test code was AI-drafted under the
+plan above. The design decisions, scope choices, and assumptions are mine, made in the
+checkpoint discussions before any code was written, and I reviewed the result at each
+gate.
+
+**Workflow notes.** The git history is the actual work log, not a retroactive cleanup:
+each feature commit contains a test together with the code that makes it pass, and the
+two mid-course corrections the process caught — an ESLint configuration fix and a fixture
+gap the concurrency test exposed (the deterministic test code generator only cycled four
+codes) — are visible where they happened. The committed spec and plan double as a record
+of the prompts and reasoning that produced the code.
