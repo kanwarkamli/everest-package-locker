@@ -2,7 +2,11 @@ import { Locker } from '../domain/locker.js';
 import { LockerSize } from '../domain/locker-size.js';
 import { Package } from '../domain/package.js';
 import { PickupCode } from '../domain/pickup-code.js';
-import { NoLockerAvailableError } from '../domain/errors.js';
+import {
+  InvalidPickupCodeError,
+  LockerNotFoundError,
+  NoLockerAvailableError,
+} from '../domain/errors.js';
 import { AllocationStrategy } from './allocation-strategy.js';
 import { Clock } from './clock.js';
 import { CodeGenerator } from './code-generator.js';
@@ -11,6 +15,10 @@ import { LockerRepository } from './locker-repository.js';
 export interface StoreReceipt {
   lockerId: string;
   pickupCode: string;
+}
+
+export interface RetrievalReceipt {
+  package: Package;
 }
 
 export interface LockerStatus {
@@ -53,6 +61,20 @@ export class LockerStation {
     locker.store(pkg, code, this.deps.clock.now());
     await this.deps.repository.save(locker);
     return { lockerId: locker.id, pickupCode: code.value };
+  }
+
+  async retrievePackage(lockerId: string, code: string): Promise<RetrievalReceipt> {
+    const locker = await this.deps.repository.findById(lockerId);
+    if (!locker) throw new LockerNotFoundError(lockerId);
+    let pickupCode: PickupCode;
+    try {
+      pickupCode = PickupCode.of(code);
+    } catch {
+      throw new InvalidPickupCodeError(lockerId);
+    }
+    const { package: pkg } = locker.retrieve(pickupCode);
+    await this.deps.repository.save(locker);
+    return { package: pkg };
   }
 
   private uniquePickupCode(lockers: Locker[]): PickupCode {
