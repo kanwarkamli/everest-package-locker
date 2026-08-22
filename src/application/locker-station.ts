@@ -12,6 +12,7 @@ import { Clock } from './clock.js';
 import { CodeGenerator } from './code-generator.js';
 import { LockerRepository } from './locker-repository.js';
 import { PricingPolicy } from './pricing-policy.js';
+import { Mutex } from '../infrastructure/mutex.js';
 
 export interface StoreReceipt {
   lockerId: string;
@@ -41,6 +42,12 @@ const MAX_CODE_ATTEMPTS = 100;
 
 export class LockerStation {
   private lockerCount = 0;
+  /**
+   * Serialises find-and-reserve so simultaneous requests can never be handed
+   * the same locker (Level 4). With a real database this guarantee would move
+   * to an atomic conditional update; the async repository port allows that.
+   */
+  private readonly mutex = new Mutex();
 
   constructor(private readonly deps: Dependencies) {}
 
@@ -57,27 +64,31 @@ export class LockerStation {
   }
 
   async storePackage(pkg: Package): Promise<StoreReceipt> {
-    const lockers = await this.deps.repository.findAll();
-    const locker = this.deps.strategy.select(lockers, pkg);
-    if (!locker) throw new NoLockerAvailableError();
-    const code = this.uniquePickupCode(lockers);
-    locker.store(pkg, code, this.deps.clock.now());
-    await this.deps.repository.save(locker);
-    return { lockerId: locker.id, pickupCode: code.value };
+    return this.mutex.runExclusive(async () => {
+      const lockers = await this.deps.repository.findAll();
+      const locker = this.deps.strategy.select(lockers, pkg);
+      if (!locker) throw new NoLockerAvailableError();
+      const code = this.uniquePickupCode(lockers);
+      locker.store(pkg, code, this.deps.clock.now());
+      await this.deps.repository.save(locker);
+      return { lockerId: locker.id, pickupCode: code.value };
+    });
   }
 
   async retrievePackage(lockerId: string, code: string): Promise<RetrievalReceipt> {
-    const locker = await this.deps.repository.findById(lockerId);
-    if (!locker) throw new LockerNotFoundError(lockerId);
-    let pickupCode: PickupCode;
-    try {
-      pickupCode = PickupCode.of(code);
-    } catch {
-      throw new InvalidPickupCodeError(lockerId);
-    }
-    const { package: pkg, storedAt } = locker.retrieve(pickupCode);
-    await this.deps.repository.save(locker);
-    return { package: pkg, charge: this.deps.pricing.charge(storedAt, this.deps.clock.now()) };
+    return this.mutex.runExclusive(async () => {
+      const locker = await this.deps.repository.findById(lockerId);
+      if (!locker) throw new LockerNotFoundError(lockerId);
+      let pickupCode: PickupCode;
+      try {
+        pickupCode = PickupCode.of(code);
+      } catch {
+        throw new InvalidPickupCodeError(lockerId);
+      }
+      const { package: pkg, storedAt } = locker.retrieve(pickupCode);
+      await this.deps.repository.save(locker);
+      return { package: pkg, charge: this.deps.pricing.charge(storedAt, this.deps.clock.now()) };
+    });
   }
 
   private uniquePickupCode(lockers: Locker[]): PickupCode {
