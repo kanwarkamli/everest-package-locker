@@ -28,6 +28,13 @@ describe('Locker', () => {
     expect(locker.canAccommodate(new Package(LockerSize.SMALL))).toBe(false);
   });
 
+  it('exposes storedAt while occupied', () => {
+    const locker = new Locker('L1', LockerSize.MEDIUM);
+    expect(locker.storedAt).toBeUndefined();
+    locker.store(new Package(LockerSize.SMALL), code, at);
+    expect(locker.storedAt).toEqual(at);
+  });
+
   it('stores a package and becomes occupied', () => {
     const locker = new Locker('L1', LockerSize.MEDIUM);
     locker.store(new Package(LockerSize.SMALL), code, at);

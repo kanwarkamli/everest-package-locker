@@ -30,6 +30,10 @@ export class Locker {
     return this.occupancy?.pickupCode;
   }
 
+  get storedAt(): Date | undefined {
+    return this.occupancy?.storedAt;
+  }
+
   canAccommodate(pkg: Package): boolean {
     return this.isAvailable && canFit(this.size, pkg.size);
   }

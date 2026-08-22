@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Mutex } from '../../src/infrastructure/mutex.js';
+import { Mutex } from '../../src/application/mutex.js';
 
 describe('Mutex', () => {
   it('runs tasks one at a time in submission order', async () => {

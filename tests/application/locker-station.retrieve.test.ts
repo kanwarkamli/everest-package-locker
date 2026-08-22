@@ -56,6 +56,12 @@ describe('LockerStation — level 2', () => {
       InvalidPickupCodeError,
     );
   });
+
+  it('reports an empty locker even when the code is malformed', async () => {
+    const { station } = makeStation();
+    await station.createLocker(LockerSize.SMALL);
+    await expect(station.retrievePackage('L1', 'abc')).rejects.toThrow(LockerEmptyError);
+  });
 });
 
 describe('LockerStation — level 3 charges', () => {
@@ -66,5 +72,19 @@ describe('LockerStation — level 3 charges', () => {
     clock.advanceHours(6 * 24); // 6 days -> 5×1 + 1×2 = 7
     const result = await station.retrievePackage(receipt.lockerId, receipt.pickupCode);
     expect(result.charge).toBe(7);
+  });
+
+  it('keeps the package stored when charge calculation fails', async () => {
+    const { station, clock } = makeStation();
+    await station.createLocker(LockerSize.SMALL);
+    const receipt = await station.storePackage(new Package(LockerSize.SMALL));
+    clock.advanceHours(-1); // system clock stepped backwards (e.g. NTP correction)
+    await expect(station.retrievePackage(receipt.lockerId, receipt.pickupCode)).rejects.toThrow(
+      'Retrieval time cannot precede storage time',
+    );
+    clock.advanceHours(2); // clock recovers — the package must still be retrievable
+    await expect(
+      station.retrievePackage(receipt.lockerId, receipt.pickupCode),
+    ).resolves.toMatchObject({ charge: 1 });
   });
 });

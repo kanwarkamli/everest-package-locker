@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline';
 import { LockerStation } from '../application/locker-station.js';
-import { parseLockerSize } from '../domain/locker-size.js';
+import { LockerSize, parseLockerSize } from '../domain/locker-size.js';
 import { Package } from '../domain/package.js';
 import {
   formatError,
@@ -9,6 +9,14 @@ import {
   formatStoreReceipt,
   HELP_TEXT,
 } from './presenter.js';
+
+type SizeArg = { ok: true; size: LockerSize } | { ok: false; message: string };
+
+function parseSizeArg(arg: string | undefined, usage: string): SizeArg {
+  const size = arg === undefined ? undefined : parseLockerSize(arg);
+  if (!size) return { ok: false, message: `Unknown size ${arg ?? ''}. Usage: ${usage}` };
+  return { ok: true, size };
+}
 
 export async function executeCommand(station: LockerStation, line: string): Promise<string> {
   const [command, ...args] = line.trim().split(/\s+/);
@@ -20,22 +28,18 @@ export async function executeCommand(station: LockerStation, line: string): Prom
       case 'help':
         return HELP_TEXT;
       case 'create-locker': {
-        const size = args[0] !== undefined ? parseLockerSize(args[0]) : undefined;
-        if (!size) {
-          return `Unknown size ${args[0] ?? ''}. Usage: create-locker <small|medium|large>`;
-        }
-        const id = await station.createLocker(size);
-        return `Created ${size} locker ${id}.`;
+        const arg = parseSizeArg(args[0], 'create-locker <small|medium|large>');
+        if (!arg.ok) return arg.message;
+        const id = await station.createLocker(arg.size);
+        return `Created ${arg.size} locker ${id}.`;
       }
       case 'list-lockers':
         return formatLockerList(await station.listLockers());
       case 'store': {
-        const size = args[0] !== undefined ? parseLockerSize(args[0]) : undefined;
-        if (!size) {
-          return `Unknown size ${args[0] ?? ''}. Usage: store <small|medium|large> [description]`;
-        }
+        const arg = parseSizeArg(args[0], 'store <small|medium|large> [description]');
+        if (!arg.ok) return arg.message;
         const description = args.slice(1).join(' ') || undefined;
-        return formatStoreReceipt(await station.storePackage(new Package(size, description)));
+        return formatStoreReceipt(await station.storePackage(new Package(arg.size, description)));
       }
       case 'retrieve': {
         const [lockerId, code] = args;
@@ -58,13 +62,20 @@ export async function runRepl(
   output.write('Smart Package Locker Management System\n');
   output.write(`${HELP_TEXT}\n\n`);
   const rl = createInterface({ input, output, prompt: '> ' });
-  rl.prompt();
-  for await (const line of rl) {
-    if (line.trim() === 'exit') break;
-    const result = await executeCommand(station, line);
-    if (result) output.write(`${result}\n`);
+  try {
     rl.prompt();
+    for await (const line of rl) {
+      if (line.trim() === 'exit') break;
+      const result = await executeCommand(station, line);
+      if (result) output.write(`${result}\n`);
+      rl.prompt();
+    }
+  } catch (error) {
+    // An input-stream failure (e.g. the terminal disappearing) must still
+    // shut the session down cleanly rather than crash the process.
+    output.write(`${formatError(error)}\n`);
+  } finally {
+    rl.close();
+    output.write('Goodbye.\n');
   }
-  rl.close();
-  output.write('Goodbye.\n');
 }

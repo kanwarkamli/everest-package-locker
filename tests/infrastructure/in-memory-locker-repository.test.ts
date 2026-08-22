@@ -11,6 +11,14 @@ describe('InMemoryLockerRepository', () => {
     expect(await repo.findById('missing')).toBeUndefined();
   });
 
+  it('rejects adding a locker with a duplicate id', async () => {
+    const repo = new InMemoryLockerRepository();
+    await repo.add(new Locker('L1', LockerSize.SMALL));
+    await expect(repo.add(new Locker('L1', LockerSize.LARGE))).rejects.toThrow(
+      'Locker L1 already exists',
+    );
+  });
+
   it('lists all lockers in insertion order', async () => {
     const repo = new InMemoryLockerRepository();
     await repo.add(new Locker('L1', LockerSize.SMALL));

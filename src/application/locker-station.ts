@@ -4,6 +4,7 @@ import { Package } from '../domain/package.js';
 import { PickupCode } from '../domain/pickup-code.js';
 import {
   InvalidPickupCodeError,
+  LockerEmptyError,
   LockerNotFoundError,
   NoLockerAvailableError,
 } from '../domain/errors.js';
@@ -12,7 +13,7 @@ import { Clock } from './clock.js';
 import { CodeGenerator } from './code-generator.js';
 import { LockerRepository } from './locker-repository.js';
 import { PricingPolicy } from './pricing-policy.js';
-import { Mutex } from '../infrastructure/mutex.js';
+import { Mutex } from './mutex.js';
 
 export interface StoreReceipt {
   lockerId: string;
@@ -44,8 +45,10 @@ export class LockerStation {
   private lockerCount = 0;
   /**
    * Serialises find-and-reserve so simultaneous requests can never be handed
-   * the same locker (Level 4). With a real database this guarantee would move
-   * to an atomic conditional update; the async repository port allows that.
+   * the same locker (Level 4). The guarantee is scoped to this station
+   * instance, which must be the sole owner of its repository; sharing a store
+   * between stations would require moving the reserve step behind the
+   * repository port as an atomic operation.
    */
   private readonly mutex = new Mutex();
 
@@ -70,7 +73,6 @@ export class LockerStation {
       if (!locker) throw new NoLockerAvailableError();
       const code = this.uniquePickupCode(lockers);
       locker.store(pkg, code, this.deps.clock.now());
-      await this.deps.repository.save(locker);
       return { lockerId: locker.id, pickupCode: code.value };
     });
   }
@@ -79,15 +81,19 @@ export class LockerStation {
     return this.mutex.runExclusive(async () => {
       const locker = await this.deps.repository.findById(lockerId);
       if (!locker) throw new LockerNotFoundError(lockerId);
+      const storedAt = locker.storedAt;
+      if (storedAt === undefined) throw new LockerEmptyError(lockerId);
       let pickupCode: PickupCode;
       try {
         pickupCode = PickupCode.of(code);
       } catch {
         throw new InvalidPickupCodeError(lockerId);
       }
-      const { package: pkg, storedAt } = locker.retrieve(pickupCode);
-      await this.deps.repository.save(locker);
-      return { package: pkg, charge: this.deps.pricing.charge(storedAt, this.deps.clock.now()) };
+      // The charge is computed before the locker is mutated so a pricing
+      // failure can never lose the package.
+      const charge = this.deps.pricing.charge(storedAt, this.deps.clock.now());
+      const { package: pkg } = locker.retrieve(pickupCode);
+      return { package: pkg, charge };
     });
   }
 

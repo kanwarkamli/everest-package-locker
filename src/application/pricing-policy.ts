@@ -21,7 +21,12 @@ export class TieredPricingPolicy implements PricingPolicy {
   constructor(
     private readonly ratePerDay = 1,
     private readonly tiers: ReadonlyArray<PricingTier> = DEFAULT_TIERS,
-  ) {}
+  ) {
+    const last = tiers[tiers.length - 1];
+    if (!last || last.days !== Infinity) {
+      throw new Error('Pricing tiers must end with an unbounded tier (days: Infinity)');
+    }
+  }
 
   charge(storedAt: Date, retrievedAt: Date): number {
     const elapsedMs = retrievedAt.getTime() - storedAt.getTime();

@@ -35,6 +35,12 @@ describe('TieredPricingPolicy', () => {
     expect(custom.charge(stored, after(6 * 24))).toBe(14); // (5 + 1×2) × 2
   });
 
+  it('rejects tier configurations that leave long durations uncharged', () => {
+    expect(() => new TieredPricingPolicy(1, [{ days: 5, multiplier: 1 }])).toThrow(
+      'must end with an unbounded tier',
+    );
+  });
+
   it('rejects retrieval time before storage time', () => {
     expect(() => policy.charge(stored, after(-1))).toThrow(
       'Retrieval time cannot precede storage time',
