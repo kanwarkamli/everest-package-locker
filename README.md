@@ -4,6 +4,8 @@ Solution to the Everest Engineering "Smart Package Locker Management System" cod
 challenge. Delivery agents store packages in size-appropriate lockers; customers retrieve
 them with a locker ID and a pickup code. All four challenge levels are implemented:
 
+![CLI demo](demo.gif)
+
 | Level | Requirement | Where |
 |---|---|---|
 | 1 | Locker creation, listing, smallest-fit storage, pickup codes | `LockerStation.createLocker/listLockers/storePackage`, `SmallestFitStrategy` |
@@ -47,6 +49,14 @@ The CLI also accepts piped input for scripted demos:
 ```bash
 printf 'create-locker small\nstore small\nlist-lockers\nexit\n' | npm start
 ```
+
+### Regenerating the demo GIF
+
+The GIF above is scripted with [VHS](https://github.com/charmbracelet/vhs) so it can be
+re-recorded reproducibly (`brew install vhs`, then `vhs demo.tape`). The tape runs the CLI
+with `LOCKER_DEMO=1`, which swaps the crypto-random pickup-code generator for a
+deterministic sequential one (`000001`, `000002`, …) so the script can retrieve packages;
+real runs always use crypto-random codes.
 
 ## Design
 
