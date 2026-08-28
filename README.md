@@ -20,7 +20,7 @@ them with a locker ID and a pickup code. All four challenge levels are implement
 ```bash
 npm install
 npm start        # interactive CLI
-npm test         # test suite (Vitest, 71 tests)
+npm test         # test suite (Vitest, 72 tests)
 npm run typecheck
 npm run lint
 ```
